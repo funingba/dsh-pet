@@ -327,19 +327,24 @@ export type PetFacing = 'left' | 'right';
  *  facing 是调用方显式指定的朝向：undefined = 没指定，不动朝向，保持当前朝向——不是回落 left。 */
 export function readAnim(
   leaf: StateLeaf,
-): { name?: string; url?: string; playbackId?: string; facing?: PetFacing } | null {
+): { name?: string; url?: string; playbackId?: string; facing?: PetFacing; loop?: true; loopMs?: number } | null {
   if (!leaf.data || typeof leaf.data !== 'object') return null;
-  const d = leaf.data as { name?: unknown; url?: unknown; playbackId?: unknown; facing?: unknown };
+  const d = leaf.data as { name?: unknown; url?: unknown; playbackId?: unknown; facing?: unknown; loop?: unknown; loopMs?: unknown };
   const name = typeof d.name === 'string' && d.name ? d.name : undefined;
   const url = typeof d.url === 'string' && d.url ? d.url : undefined;
   // 两个都缺席 = 形状非法（宿主写端保证恰好一个，这里不替它猜）
   if (name === undefined && url === undefined) return null;
+  // 循环：只认字面量 true（老宿主不写 = 播一次），`loopMs` 只在循环形态下有值
+  const loop = d.loop === true;
+  const loopMs = loop && typeof d.loopMs === 'number' && Number.isFinite(d.loopMs) && d.loopMs >= 0 ? d.loopMs : undefined;
   return {
     name,
     url,
     playbackId: typeof d.playbackId === 'string' && d.playbackId ? d.playbackId : undefined,
     // 朝向：只认两个字面量，其余（含缺省、老宿主、脏值）一律 undefined = 不动朝向
     facing: d.facing === 'left' || d.facing === 'right' ? d.facing : undefined,
+    // 非循环点播不出现这两个键：叶子形状就是语义，老渲染端读到也不会误判
+    ...(loop ? { loop: true as const, ...(loopMs === undefined ? {} : { loopMs }) } : {}),
   };
 }
 

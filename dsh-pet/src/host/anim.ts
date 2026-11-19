@@ -26,7 +26,7 @@ export type PetFacing = 'left' | 'right';
  * `facing` 缺席 = 调用方没指定，渲染端不动朝向（不是回落 left）。
  */
 export type AnimDecision =
-  | { ok: true; petId: string; name?: string; url?: string; facing?: PetFacing }
+  | { ok: true; petId: string; name?: string; url?: string; facing?: PetFacing; loop?: true; loopMs?: number }
   | { ok: false; reason: AnimFailure; message: string };
 
 /** 配置里的池子收窄：非数组、非字符串项一律丢弃。 */
@@ -128,6 +128,8 @@ export function decideAnim(args: {
   name: unknown;
   url: unknown;
   facing?: unknown;
+  loop?: unknown;
+  loopMs?: unknown;
 }): AnimDecision {
   const { cfg, requested } = args;
 
@@ -146,6 +148,26 @@ export function decideAnim(args: {
     facing = f;
   }
 
+  // loop 可选：缺省 = 现状（播一次）。给了必须是布尔——与 facing 同一口径，非法值不静默忽略。
+  let loop: true | undefined;
+  let loopMs: number | undefined;
+  if (args.loop !== undefined && args.loop !== null) {
+    if (typeof args.loop !== 'boolean') return { ok: false, reason: 'bad-request', message: 'loop 必须是布尔' };
+    if (args.loop) {
+      loop = true;
+      // loopMs 可选：循环多久之后收脚（毫秒）。没开 loop 时一律不看——调用方常把 body 模板整个复用，
+      // 为这种字段报错只会逼他们删字段（与 /position 的 duration 同一取舍）。
+      if (args.loopMs !== undefined && args.loopMs !== null) {
+        const ms = args.loopMs;
+        if (typeof ms !== 'number' || !Number.isFinite(ms) || ms < 0) {
+          return { ok: false, reason: 'bad-request', message: 'loopMs 必须是非负有限数字（毫秒）' };
+        }
+        loopMs = ms;
+      }
+    }
+  }
+  const loopFields = loop === undefined ? {} : { loop, ...(loopMs === undefined ? {} : { loopMs }) };
+
   // pet 必填且必须真实存在（与 /broadcast、/position 同一口径）：绝不默认退到「当前桌宠」——
   // 那是有效宠物列表第一只，落点随用户 /pet 操作而变，第三方无从预期。
   const petId = String(requested ?? '').trim();
@@ -162,7 +184,7 @@ export function decideAnim(args: {
     if (url === null) {
       return { ok: false, reason: 'bad-request', message: 'url 必须是 http/https 的完整地址' };
     }
-    return { ok: true, petId, url, facing };
+    return { ok: true, petId, url, facing, ...loopFields };
   }
 
   // name 形态：名字必须是该宠物菜单里点得到的动画。播放端"名字即文件名"，播不存在的动画只会静默失败，
@@ -172,5 +194,24 @@ export function decideAnim(args: {
     return { ok: false, reason: 'unknown-animation', message: '没有这个动画：' + name };
   }
 
-  return { ok: true, petId, name, facing };
+  return { ok: true, petId, name, facing, ...loopFields };
+}
+
+/**
+ * 决策结论 → 写进 S 叶子的载荷（`playbackId` 由路由补）。
+ *
+ * 叶子形状本身就是语义：`loop` 只在显式循环时出现，`loopMs` 只在给了值时出现；非循环点播与
+ * 引入循环之前逐字段一致，老渲染端读到多出来的字段也不会误判。
+ *
+ * @param d - 通过校验的决策结论。
+ * @returns 可以直接交给 `state.writePet` 的对象。
+ */
+export function animLeafData(d: Extract<AnimDecision, { ok: true }>): Record<string, unknown> {
+  const out: Record<string, unknown> = d.url !== undefined ? { url: d.url } : { name: d.name };
+  if (d.facing !== undefined) out.facing = d.facing;
+  if (d.loop === true) {
+    out.loop = true;
+    if (d.loopMs !== undefined) out.loopMs = d.loopMs;
+  }
+  return out;
 }

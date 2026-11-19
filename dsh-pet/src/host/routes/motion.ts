@@ -5,7 +5,7 @@
  * @module dsh-pet/src/host/routes/motion
  */
 import { readAllConfig } from '../config.ts';
-import { decideAnim } from '../anim.ts';
+import { animLeafData, decideAnim } from '../anim.ts';
 import { decidePosition, decideThrow, positionLeafData } from '../motion-cue.ts';
 import { normalizePoseInput } from '../pose.ts';
 import { displayCovers } from '../surface.ts';
@@ -42,6 +42,8 @@ export async function handleMotionRoutes(deps: PetRouteDeps, input: RouteInput):
         name: o.name,
         url: o.url,
         facing: o.facing,
+        loop: o.loop,
+        loopMs: o.loopMs,
       });
       if (!d.ok) return failResult(d.reason, d.message);
       // 显示端对齐：不满足 → pet-not-displayed（+ 实际 display），早于锁门禁
@@ -53,11 +55,7 @@ export async function handleMotionRoutes(deps: PetRouteDeps, input: RouteInput):
       // 播放回执：受理时建记录（accepted），编号随叶子一起下发，渲染端据此上报。
       // 叶子形状：name 与 url 恰好一个（判定层保证），facing 只在显式给了时才进叶子。
       const record = playback.create(d.petId, d.url ?? d.name ?? '');
-      state.writePet(d.petId, 'anim', {
-        ...(d.url !== undefined ? { url: d.url } : { name: d.name }),
-        playbackId: record.playbackId,
-        ...(d.facing === undefined ? {} : { facing: d.facing }),
-      });
+      state.writePet(d.petId, 'anim', { ...animLeafData(d), playbackId: record.playbackId });
       return okResult({ ok: true, playbackId: record.playbackId });
     } catch (e) {
       // 配置读取失败等（安装损坏）→ 显式失败，不静默

@@ -12,7 +12,7 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { animationNames, decideAnim } from './anim.ts';
+import { animationNames, animLeafData, decideAnim } from './anim.ts';
 
 /** 与 assets/config.jsonc 同形状的动画配置：覆盖菜单树的 7 个池 + 玩法池 baifan */
 const ANIMATIONS = {
@@ -281,5 +281,57 @@ describe('decideAnim —— facing（朝向，可选）', () => {
   test('facing 不影响 name / url 二选一那条校验', () => {
     assert.equal(decide({ name: '东张西望', url: 'https://x/y.webm', facing: 'left' }).ok, false);
     assert.equal(decide({ name: undefined, url: undefined, facing: 'left' }).ok, false);
+  });
+});
+
+describe('loop / loopMs —— 循环点播（占位动画跟着走位跑）', () => {
+  /** 决策通过后写进 S 的叶子（含 playbackId 的那份由路由补）。 */
+  const leafOf = (over: Partial<Parameters<typeof decideAnim>[0]> = {}) => {
+    const d = decide(over);
+    assert.equal(d.ok, true, JSON.stringify(over) + ' 应通过');
+    return animLeafData(d);
+  };
+
+  test('loop=true 透出并进叶子', () => {
+    assert.deepEqual(leafOf({ loop: true }), { name: '东张西望', loop: true });
+  });
+
+  test('loopMs 跟 loop 一起进叶子', () => {
+    assert.deepEqual(leafOf({ loop: true, loopMs: 1500 }), { name: '东张西望', loop: true, loopMs: 1500 });
+  });
+
+  test('不传时叶子形状完全不变', () => {
+    assert.deepEqual(leafOf(), { name: '东张西望' });
+  });
+
+  test('没开 loop 时 loopMs 被忽略（调用方常复用 body 模板）', () => {
+    assert.deepEqual(leafOf({ loopMs: 1500 }), { name: '东张西望' });
+  });
+
+  test('url 形态一样支持 loop', () => {
+    assert.deepEqual(leafOf({ name: undefined, url: 'https://cdn.example.com/x.webm', loop: true }), {
+      url: 'https://cdn.example.com/x.webm',
+      loop: true,
+    });
+  });
+
+  test('loop 必须是布尔，否则 bad-request', () => {
+    for (const bad of ['true', 1, {}, []]) {
+      const d = decide({ loop: bad });
+      assert.equal(d.ok, false, JSON.stringify(bad) + ' 不应通过');
+      assert.equal(d.ok === false && d.reason, 'bad-request');
+    }
+  });
+
+  test('loopMs 必须是非负有限数，否则 bad-request', () => {
+    for (const bad of [-1, NaN, Infinity, '1500', true]) {
+      const d = decide({ loop: true, loopMs: bad });
+      assert.equal(d.ok, false, JSON.stringify(bad) + ' 不应通过');
+      assert.equal(d.ok === false && d.reason, 'bad-request');
+    }
+  });
+
+  test('loopMs=0 合法（循环起手就该收）', () => {
+    assert.deepEqual(leafOf({ loop: true, loopMs: 0 }), { name: '东张西望', loop: true, loopMs: 0 });
   });
 });

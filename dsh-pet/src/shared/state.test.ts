@@ -285,6 +285,32 @@ describe('readAnim —— 点播动画叶子（名字或地址 + 回执编号）
       assert.equal(hit?.name, 'A', '脏 facing 不该让整条指令作废（照样播，只是不动朝向）');
     }
   });
+
+  test('loop（循环点播）：true 取到，缺省 / 非法值 → undefined（= 播一次）', () => {
+    assert.equal(readAnim({ counter: 1, data: { name: 'A', loop: true } })?.loop, true);
+    for (const bad of [false, 'true', 1, null, undefined]) {
+      assert.equal(readAnim({ counter: 1, data: { name: 'A', loop: bad } })?.loop, undefined);
+    }
+  });
+
+  test('loopMs 只在循环形态下取到；非法值归一成 undefined', () => {
+    assert.equal(readAnim({ counter: 1, data: { name: 'A', loop: true, loopMs: 1200 } })?.loopMs, 1200);
+    assert.equal(readAnim({ counter: 1, data: { name: 'A', loop: true, loopMs: 0 } })?.loopMs, 0);
+    // 没开 loop 时 loopMs 没有意义
+    assert.equal(readAnim({ counter: 1, data: { name: 'A', loopMs: 1200 } })?.loopMs, undefined);
+    for (const bad of [-1, NaN, Infinity, '1200', true]) {
+      assert.equal(readAnim({ counter: 1, data: { name: 'A', loop: true, loopMs: bad } })?.loopMs, undefined);
+    }
+  });
+
+  test('非循环点播的读取结果与引入循环之前逐字段一致', () => {
+    assert.deepEqual(readAnim({ counter: 1, data: { name: 'A', playbackId: 'pb-1', facing: 'left' } }), {
+      name: 'A',
+      url: undefined,
+      playbackId: 'pb-1',
+      facing: 'left',
+    });
+  });
 });
 
 describe('readSay —— 说话叶子（弹气泡 / 清空 两种形态）', () => {

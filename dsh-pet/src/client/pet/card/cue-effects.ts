@@ -21,6 +21,29 @@ export interface CueEffectsRuntime {
   useRef: <T>(initial: T) => ReactNS.MutableRefObject<T>;
 }
 
+/** 一次点播指令的播放计划：播几次、要不要在某个时刻收脚。 */
+export interface AnimCuePlan {
+  /** `true` = 播完就换下一段；`false` = 循环，直到 {@link AnimCuePlan.stopAfterMs} 或新的指令。 */
+  once: boolean;
+  /** 循环多久之后收脚（毫秒）；`null` = 不收脚（一直循环）。仅 `once === false` 时有意义。 */
+  stopAfterMs: number | null;
+}
+
+/**
+ * 点播指令 → 播放计划。
+ *
+ * url 形态永远只插播一段：裸地址没有菜单语义，循环它没有意义（宿主也不给 url 形态带 loop）。
+ * 名称形态的 `loop` 必须显式给 `true` 才循环；老宿主不写这两个字段，行为与引入循环之前一致。
+ *
+ * @param cue - 当拍的点播指令；还没收到时传 `undefined`。
+ * @returns 播放计划。
+ */
+export function animCuePlan(cue: { name?: string; url?: string; loop?: true; loopMs?: number } | undefined): AnimCuePlan {
+  if (!cue || cue.url !== undefined) return { once: true, stopAfterMs: null };
+  if (cue.loop !== true) return { once: true, stopAfterMs: null };
+  return { once: false, stopAfterMs: cue.loopMs ?? null };
+}
+
 /** 日志行的时刻前缀。 */
 const stamp = (): string => new Date().toTimeString().slice(0, 8);
 
@@ -53,6 +76,13 @@ export function createCueEffects(rt: CueEffectsRuntime) {
     const prevWorkStateRef = useRef<string | null | undefined>(undefined);
     const prevSayRef = useRef(0);
     const prevAnimRef = useRef(0);
+    /** 循环收脚的定时器：新指令与卸载都作废它，避免迟到的一次收脚打到别的动画上。 */
+    const loopStopRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const clearLoopStop = (): void => {
+      if (loopStopRef.current === null) return;
+      clearTimeout(loopStopRef.current);
+      loopStopRef.current = null;
+    };
     const prevPosRef = useRef(0);
     const prevThrowRef = useRef(0);
 
@@ -193,6 +223,8 @@ export function createCueEffects(rt: CueEffectsRuntime) {
       const card = hub.card;
       if (!animCue || animCue.seq === prevAnimRef.current) return;
       prevAnimRef.current = animCue.seq;
+      // 新指令一律作废上一条的收脚定时器：它属于上一条循环。
+      clearLoopStop();
       // facing 必须在换源前落地，并同步镜像 ref：换源在 onReady 里读它。
       // 未传 facing 时保持当前朝向，不回落 left。
       const explicitFacing = animCue.facing !== undefined;
@@ -212,6 +244,23 @@ export function createCueEffects(rt: CueEffectsRuntime) {
         return;
       }
       if (animCue.name === undefined) return;
+      const plan = animCuePlan(animCue);
+      // 循环形态：直接换源循环，不走菜单动作——那会把走位动作名转成 tryMove、把固定动画套上
+      // 「用户点击」语义。到点由 stopLoopingFront 收脚（只关循环、不重播），播完照常回动画链。
+      if (!plan.once) {
+        hub.stopMotion();
+        card.actions.setOnce(false);
+        card.actions.setAnim(animCue.name);
+        card.actions.bumpSeq();
+        card.actions.setCuePlayback(animCue.playbackId ?? null);
+        if (plan.stopAfterMs !== null) {
+          loopStopRef.current = setTimeout(() => {
+            loopStopRef.current = null;
+            hub.ownAnim.stopLoopingFront();
+          }, plan.stopAfterMs);
+        }
+        return;
+      }
       // keepFacing：显式指定的朝向优先于「文字类强制朝左」的镜像修正。
       hub.playByName(animCue.name, animCue.playbackId, explicitFacing);
     };
@@ -244,5 +293,8 @@ export function createCueEffects(rt: CueEffectsRuntime) {
       // 守卫函数每渲染重建，但只读 ref 与当拍的 props；进依赖会让每个渲染都重跑八个守卫。
       // eslint-disable-next-line react-hooks/exhaustive-deps -- 变化原因只有这八个计数器
     }, [balanceTick, balanceNoticeTick, envTick, workStatusTick, sayTick, animCueTick, posCueTick, throwCueTick]);
+
+    // 卸载时清掉未到点的收脚定时器：迟到的一次 stopLoopingFront 会打在已 dispose 的元素上。
+    useEffect(() => () => clearLoopStop(), []);
   };
 }
