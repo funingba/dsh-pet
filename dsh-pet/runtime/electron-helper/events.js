@@ -407,6 +407,11 @@ function applyAnimLeaf(petId, leaf) {
     if (s.pet.id !== petId) continue;
     const explicitFacing = hit.facing !== undefined;
     if (explicitFacing) s.facing = hit.facing; // 必须在换源前：switchTo 里按它贴 scaleX(-1)
+    if (hit.loop === true) {
+      // 循环点播：名字与 url 两条源都走同一入口；loopMs 到点由 playback.stopLoopingFront 收脚。
+      s.playLoop(hit.name ?? hit.url, hit.loopMs, hit.playbackId, hit.url);
+      continue;
+    }
     if (hit.url !== undefined) s.playUrlOnce(hit.url, hit.playbackId);
     else if (hit.name !== undefined)
       s.onMenuAction({ label: hit.name, anim: hit.name, playbackId: hit.playbackId }, explicitFacing, true);

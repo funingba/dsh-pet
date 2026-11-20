@@ -10,6 +10,8 @@
 Object.assign(PetSprite.prototype, {
   switchTo(next, nextOnce, playbackId, url) {
     if (!next) return;
+    // 换源即视为循环点播结束：收起 loopMs 计时器，否则它会到点把新动画的循环关掉。
+    this.clearLoopStop();
     // 「当前在播哪一段」只在这里写：ended 分流、回空闲补丁、随机链避重都读它。
     // 交给调用方维护时 switchTo(x, false) 会留下过期值，events.js 判「是不是工作动画」就永远不成立。
     this.anim = next;
@@ -114,6 +116,41 @@ Object.assign(PetSprite.prototype, {
     void el.play().catch(() => {});
   },
 
+  /**
+   * 点播循环（/anim 的 loop / loopMs）。
+   *
+   * loopMs 到点只关循环、不重播：当前这一遍播完由 handleEnded 接回随机链（回执也由它报 ended），
+   * 与浏览器端 stopLoopingFront 的语义一致。不传 loopMs 就一直循环，直到下一条指令换源。
+   */
+  playLoop(next, loopMs, playbackId, url) {
+    if (!next) return;
+    this.clearLoopStop();
+    this.stopMove();
+    this.switchTo(next, false, playbackId, url);
+    if (typeof loopMs === 'number' && Number.isFinite(loopMs) && loopMs > 0) {
+      this.loopStopTimer = window.setTimeout(() => {
+        this.loopStopTimer = null;
+        this.stopLoopingFront();
+      }, loopMs);
+    }
+  },
+
+  /** 只关循环、不重播：当前这一遍播完由 handleEnded 接回随机链。 */
+  stopLoopingFront() {
+    const el = this.front === 0 ? this.videoA : this.videoB;
+    if (!el) return;
+    el.loop = false;
+    el.onended = () => this.handleEnded();
+  },
+
+  /** 收起 loopMs 计时器（换源、冻结都调）。 */
+  clearLoopStop() {
+    if (this.loopStopTimer != null) {
+      window.clearTimeout(this.loopStopTimer);
+      this.loopStopTimer = null;
+    }
+  },
+
   playOnce(name, playbackId, url) {
     this.switchTo(name, true, playbackId, url);
   },
@@ -140,6 +177,7 @@ Object.assign(PetSprite.prototype, {
     const el = this.front === 0 ? this.videoA : this.videoB;
     const stamp = '[dsh-pet] ' + new Date().toTimeString().slice(0, 8) + ' pet=' + this.pet.id;
     if (next) {
+      this.clearLoopStop();
       // 停住正在播的那一段：宿主停不掉一段视频，完全静止只能由渲染端执行；只堵随机链入口不够，
       // 那个入口要等动画播完才被调用。
       this.stopMove();

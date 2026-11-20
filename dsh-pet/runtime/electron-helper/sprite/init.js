@@ -25,6 +25,7 @@ Object.assign(PetSprite.prototype, {
     // 朝向走 accessor：赋值即标记实况脏。初始化阶段直接写 `_facing`，避免其它字段就绪前触发上报。
     this._facing = 'left';
     this.poseTimer = null; // 实况上报的节流定时器（见 markPoseDirty）
+    this.loopStopTimer = null; // 点播循环的 loopMs 收脚计时器（见 playback.js playLoop）
   },
 
   /** 拖拽 / 抛掷 / 移动 / 挤压的帧句柄与状态；stop 之前这些只有一份。 */
