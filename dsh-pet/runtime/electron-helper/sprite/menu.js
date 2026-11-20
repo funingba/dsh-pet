@@ -67,6 +67,8 @@ Object.assign(PetSprite.prototype, {
     const tree = tools.concat(S.buildMenuTree(this.animations), tail, more ? [more] : []);
     if (!tree.length) return;
     this.menuOpen = true;
+    // 本地补丁：菜单期间把常驻对话窗藏起来（它 z-index 比菜单高，否则会盖住菜单）。
+    if (this.chatMount) this.chatMount.setHidden(true);
     this.setInteractive(true); // 菜单是窗口内 DOM：悬停期间整窗保持可交互，关闭后恢复命中区穿透
     this.syncInputBusy();
     window.__dshPetDebug.menuOpen = true;
@@ -178,6 +180,8 @@ Object.assign(PetSprite.prototype, {
     }
     this.menuOpen = false;
     window.__dshPetDebug.menuOpen = false;
+    // 本地补丁：菜单关了，对话窗重新出现。
+    if (this.chatMount) this.chatMount.setHidden(false);
     this.syncInputBusy(); // 菜单关：若没有别的占用（拖拽/弹窗）则交还常规判定
     if (!this.inputBusy()) this.setInteractive(false);
   },
@@ -301,8 +305,16 @@ Object.assign(PetSprite.prototype, {
       petId: this.pet.id,
       baseUrl: BASE + '/chat',
       surface: 'desktop',
-      x: Math.max(4, this.hit.getBoundingClientRect().right + 6),
-      y: Math.max(4, this.hit.getBoundingClientRect().top + 6),
+      // 本地补丁：常驻对话窗，锚在宠物下沿居中，发送后不关。
+      align: 'center',
+      keepOpen: true,
+      keepTarget: (target) => this.hit === target || this.hit.contains(target),
+      x: (() => { const r = this.hit.getBoundingClientRect(); return r.left + r.width / 2; })(),
+      y: (() => { const r = this.hit.getBoundingClientRect(); return r.bottom + 8; })(),
+      getAnchor: () => {
+        const r = this.hit.getBoundingClientRect();
+        return { x: r.left + r.width / 2, y: r.bottom + 8 };
+      },
       // 拖拽落到宠物身上时直接带着图开弹窗
       ...(image ? { initialImage: image } : {}),
       // 截图快捷键：截到的帧是 base64，没有 File

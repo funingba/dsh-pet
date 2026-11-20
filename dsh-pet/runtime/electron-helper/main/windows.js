@@ -10,6 +10,7 @@ const path = require('node:path');
 const { pointerZone, decideWindowIgnore, leavesBody } = require('../pointer-target.js');
 const { TOPMOST_WATCHDOG_ENABLED, TOPMOST_WATCHDOG_TICK_MS } = require('../topmost-watchdog.js');
 const { TASKBAR_WATCHDOG_TICK_MS, shouldRunTaskbarWatchdog } = require('../taskbar-watchdog.js');
+const { readWindowBackdrop } = require('../window-backdrop.js');
 
 /** 兜底通道的光标轮询间隔（ms）。 */
 const POINTER_POLL_MS = 60;
@@ -42,6 +43,11 @@ function createWindows({
   topmostLevel,
   taskbarWatchdogEnabled,
 }) {
+  /**
+   * 叠加/抠色底板：`window-backdrop.json` 存在时窗口变成不透明纯色底（给 OBS/直播伴侣的
+   * 「窗口采集 + 抠色」兜底），读不到就照旧透明。改标记要 `POST /dsh-pet-7340/reload` 重建窗口。
+   */
+  const backdrop = readWindowBackdrop(helperDir);
   /** 窗口表：petId -> BrowserWindow */
   const windows = new Map();
   /** win.id -> 上一次请求的内容区矩形（"x,y,w,h"）：pet:set-bounds 的去重基准 */
@@ -216,7 +222,8 @@ function createWindows({
       useContentSize: true,
       // macOS 默认会把已显示窗口的 y 钳到菜单栏下沿；局部画布的透明余量必须允许伸出屏幕
       enableLargerThanScreen: true,
-      transparent: true,
+      // 透明小窗是默认；有底板标记时换成不透明纯色底，供采集端抠色（见 window-backdrop.js）
+      ...(backdrop === null ? { transparent: true } : { transparent: false, backgroundColor: backdrop.color }),
       frame: false,
       alwaysOnTop: true,
       skipTaskbar: true,

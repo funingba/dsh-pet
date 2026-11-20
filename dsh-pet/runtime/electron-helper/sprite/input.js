@@ -120,6 +120,8 @@ Object.assign(PetSprite.prototype, {
         this.playOnce(S.pick(this.animations.drag));
       }
       this.syncInputBusy(); // 拖拽成立：主进程兜底通道闭嘴（见 inputBusy）
+      // 本地补丁：拖动期间把常驻对话窗藏起来，免得它拖在身后。
+      if (this.chatMount) this.chatMount.setHidden(true);
     }
     // 记录指针轨迹（screenX/Y 采样，速度一致；初速估算用；÷scale 进 CSS 系）
     const now = performance.now();
@@ -138,6 +140,11 @@ Object.assign(PetSprite.prototype, {
     this.hit.classList.remove('dragging');
     this.stopDragFollow(); // 弹簧跟随立即停（位置定格在实时 this.pos）
     this.syncInputBusy(); // 拖拽结束：交还给常规判定（幂等，非拖拽时多调一次不发 IPC）
+    // 本地补丁：松手后让对话窗重新出现，并按新位置重新落位。
+    if (this.chatMount) {
+      this.chatMount.setHidden(false);
+      this.chatMount.reposition();
+    }
     // 提示复位：点击/拖拽期间收起，指针仍在命中区内就恢复。用 hitRect 而不是 getBoundingClientRect
     // ——命中区是窗口坐标里的权威几何，与 onMouseMove 同源。必须留在 syncInputBusy() 之后：
     // 源码守卫只扫本函数开头 400 字符找上报调用，插到前面会把上报挤出窗口。

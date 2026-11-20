@@ -154,6 +154,18 @@ PetSprite.prototype.showBalanceNotice = function showBalanceNotice(state, manual
 
 // 推进说话气泡的收起计划并重排计时器：语音合成期间挂起，播完再留一小段尾巴。
 // 计划与常量在 shared/bubble-hold，与浏览器端共用同一份（两端行为不能各自漂移）。
+// 本地补丁：把当前气泡先藏起来，ms 后显示。只改 visibility，不影响气泡的挂起/收起计划。
+PetSprite.prototype.delayBubble = function delayBubble(ms) {
+  const node = this.bubble;
+  if (!node) return;
+  if (this.bubbleDelayTimer) window.clearTimeout(this.bubbleDelayTimer);
+  node.style.visibility = 'hidden';
+  this.bubbleDelayTimer = window.setTimeout(() => {
+    this.bubbleDelayTimer = null;
+    node.style.visibility = '';
+  }, ms);
+};
+
 PetSprite.prototype.applyWhisperHold = function applyWhisperHold(event) {
   const next = S.reduceBubbleHold(this.whisperHold, event);
   if (next === this.whisperHold) return; // 同引用 = 无事发生，不白重排计时器
@@ -173,6 +185,10 @@ PetSprite.prototype.applyWhisperHold = function applyWhisperHold(event) {
 // 收起说话气泡（POST /bubble/clear 的落点）。只动气泡：正在播的动画、余额气泡、
 // 工作状态气泡都不碰——气泡与动作是两把锁、分别释放。与浏览器端 clearWhisperBubble 同一语义。
 PetSprite.prototype.clearWhisper = function clearWhisper() {
+  // 本地补丁：清气泡时取消延迟显示，恢复可见性。
+  if (this.bubbleDelayTimer) window.clearTimeout(this.bubbleDelayTimer);
+  this.bubbleDelayTimer = null;
+  if (this.bubble) this.bubble.style.visibility = '';
   this.whisperText = '';
   this.whisperView = null;
   this.whisperImage = '';
@@ -379,7 +395,12 @@ function applySayLeaf(petId, leaf) {
       s.clearWhisper();
       continue;
     }
-    s.showWhisper(said.text, said.image, said.url, said.duration, said.anim);
+    // 本地补丁：压掉「每条气泡随机抽一个动作」的默认行为——动作改由 chat_bot 显式调
+    // pet_anim 决定（否则随机动作会和它挑的动作互相顶掉）。气泡本身照常显示。
+    s.showWhisper(said.text, said.image, said.url, said.duration, false);
+    // 本地补丁：要念的这一句，先让气泡占位（挂住计划照常生效）但看不见，0.8 s 后再显示，
+    // 让「看见字」和「听见声」错开得没那么大。语音请求照旧立刻发。
+    if (said.voiceTo !== undefined) s.delayBubble(800);
     // 两端各判各的：叶子点名 desktop 才念，没点名或点了网页端就只弹气泡。
     // 必须留在按 petId 过滤的循环里：每个窗口都收到全部叶子（全局计数器唤醒所有窗口），
     // 放到循环外会让没装这只宠物的窗口跟着一起念，N 只桌面宠物就是 N 份语音。

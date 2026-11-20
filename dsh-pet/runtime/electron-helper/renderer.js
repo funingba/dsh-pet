@@ -95,6 +95,7 @@ async function boot() {
     window.__dshPetDebug.spriteCount = sprites.length;
     for (const s of sprites) s.playIdle();
     startLoops();
+    void maybeAutoOpenChat();
   } catch (e) {
     const msg = '配置加载失败：' + (e && e.message ? String(e.message) : String(e));
     // 首次失败先静默（多半是启动竞态，见 bootFailures 的说明），下一次 5s 重试仍失败才报。
@@ -155,5 +156,24 @@ window.addEventListener('resize', () => {
 // 1/255 alpha 修正滤镜：开关是共享常量 PET_ALPHA_FIX_ENABLED，静态样式表读不到它，
 // 所以在这里把开关落成 class（样式在 index.html 的 html.pet-alpha-fix）。
 if (S.PET_ALPHA_FIX_ENABLED) document.documentElement.classList.add('pet-alpha-fix');
+
+// 本地补丁：常驻对话窗。控制台那边的 /stream-assistant/api/panel 说 alwaysOpen 就开机自动开窗
+// （面板位置由 sprite/menu.js 锚在宠物下沿）。取不到就当不常驻，一切照旧。
+async function maybeAutoOpenChat() {
+  try {
+    const res = await fetch('/stream-assistant/api/panel', { cache: 'no-store' });
+    if (!res.ok) return;
+    const body = await res.json().catch(() => null);
+    if (body && body.panel && body.panel.alwaysOpen === true) {
+      const sprite = sprites[0];
+      if (sprite && typeof sprite.showChatFromMenu === 'function' && !sprite.chatOpen) {
+        window.setTimeout(() => {
+          if (!sprite.chatOpen) sprite.showChatFromMenu();
+        }, 600);
+      }
+    }
+  } catch { /* 控制台没在也不影响桌宠 */ }
+}
+
 injectAssets();
 void boot();
